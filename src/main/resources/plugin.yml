@@ -1,0 +1,13 @@
+name: ${project.name}
+main: me.hqm.plugindev.wget.WGET
+version: ${project.version}
+description: ${project.description}
+author: HmmmQuestionMark
+commands:
+    wget:
+        usage: /wget <url>
+        description: Download plugins from a url.
+        permission: w.get
+permissions:
+    w.get:
+        default: op
