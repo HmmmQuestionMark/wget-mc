@@ -37,6 +37,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.file.AccessDeniedException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.zip.ZipEntry;
@@ -65,10 +66,11 @@ public class WGET extends JavaPlugin implements CommandExecutor {
 
     /**
      * Standard Bukkit command executor.
-     * @param sender The command sender
+     *
+     * @param sender  The command sender
      * @param command The command being sent
-     * @param label The label/alias being used
-     * @param args The arguments following the command
+     * @param label   The label/alias being used
+     * @param args    The arguments following the command
      * @return The command ran successfully
      */
     @Override
@@ -131,6 +133,7 @@ public class WGET extends JavaPlugin implements CommandExecutor {
 
     /**
      * Get a URL from an input string.
+     *
      * @param input URL String
      * @return Valid URL
      */
@@ -154,6 +157,7 @@ public class WGET extends JavaPlugin implements CommandExecutor {
 
     /**
      * Get the file name from the URL.
+     *
      * @param url Valid URL
      * @return Filename
      */
@@ -166,8 +170,9 @@ public class WGET extends JavaPlugin implements CommandExecutor {
 
     /**
      * Create and start a download (async) task.
+     *
      * @param sender The sender who started the task
-     * @param url Valid URL
+     * @param url    Valid URL
      */
     private void downloadTask(final CommandSender sender, final URL url) {
         // Make sure the URL still exists
@@ -211,6 +216,7 @@ public class WGET extends JavaPlugin implements CommandExecutor {
 
     /**
      * Download a URL (jar or zip) to a file
+     *
      * @param url Valid URL
      * @return Success or failure
      */
@@ -255,8 +261,10 @@ public class WGET extends JavaPlugin implements CommandExecutor {
                         File entryFile = new File(path, entry.getName());
 
                         // If it is a directory and doesn't already exist, create the new directory
-                        if (entry.isDirectory() && !entryFile.exists()) {
-                            entryFile.mkdirs();
+                        if (entry.isDirectory()) {
+                            if (!entryFile.exists()) {
+                                entryFile.mkdirs();
+                            }
                         } else {
                             // Make sure all folders exist
                             if (entryFile.getParentFile() != null && !entryFile.getParentFile().exists()) {
@@ -264,8 +272,9 @@ public class WGET extends JavaPlugin implements CommandExecutor {
                             }
 
                             // Create file on disk
-                            if (!entryFile.exists()) {
-                                entryFile.createNewFile();
+                            if (!entryFile.exists() && !entryFile.createNewFile()) {
+                                // Access denied, let the console know
+                                throw new AccessDeniedException(entryFile.getPath());
                             }
 
                             // Write data to file from zip.
@@ -290,7 +299,11 @@ public class WGET extends JavaPlugin implements CommandExecutor {
 
             // Return success
             return true;
-        } catch (NullPointerException | IOException ignored) {
+        } catch (NullPointerException | IOException oops) {
+            getLogger().severe("---------- WGET BEGIN -----------");
+            getLogger().severe("An error occurred during a file download/extraction:");
+            oops.printStackTrace();
+            getLogger().severe("----------- WGET END ------------");
         }
 
         // The download failed, report failure
