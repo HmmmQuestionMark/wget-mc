@@ -97,18 +97,17 @@ public class WGET extends JavaPlugin implements CommandExecutor {
                     CACHE.putIfAbsent(player.getName(), url);
 
                     // Send cool click text verification
-                    FancyMessage message = new FancyMessage("Are you sure? ");
+                    FancyMessage message = new FancyMessage("Please confirm: ");
                     message.color(ChatColor.YELLOW).
-                            then("Yes").
-                            color(ChatColor.DARK_GREEN).
-                            command("/wget " + player.getName() + " yes").
+                            then("Continue").
+                            style(ChatColor.ITALIC).
+                            command("/wget " + player.getName() + " continue").
                             tooltip("Download " + fileName(url) + "?").
-                            then(" or ").
+                            then(" / ").
                             color(ChatColor.YELLOW).
-                            then("No").
-                            color(ChatColor.RED).
-                            command("/wget " + sender.getName() + " no").
-                            tooltip("Cancel?").
+                            then("Cancel").
+                            style(ChatColor.ITALIC).
+                            command("/wget " + sender.getName() + " cancel").
                             send(player);
                 }
             }
@@ -118,8 +117,9 @@ public class WGET extends JavaPlugin implements CommandExecutor {
         if (args.length == 2) {
             String name = args[0];
             // If verified correctly start the download task
-            if ("yes".equalsIgnoreCase(args[1])) {
+            if ("continue".equalsIgnoreCase(args[1])) {
                 downloadTask(sender, CACHE.get(name));
+                CACHE.remove(name);
             } else {
                 // Cancel download and alert the sender.
                 CACHE.remove(name);
@@ -177,7 +177,7 @@ public class WGET extends JavaPlugin implements CommandExecutor {
     private void downloadTask(final CommandSender sender, final URL url) {
         // Make sure the URL still exists
         if (url == null) {
-            sender.sendMessage(PREFIX + "The download is cancelled, please start over.");
+            sender.sendMessage(PREFIX + "Please use /wget <link> to select a download.");
         } else {
             // Alert the sender the download has begun
             sender.sendMessage(PREFIX + "Downloading...");
