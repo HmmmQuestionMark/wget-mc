@@ -21,7 +21,11 @@
             <url>http://repo.md-5.net/content/repositories/snapshots</url>
         </repository>
         <repository>
-            <id>fanciful-mvn-repo</id>
+            <id>com.iciql</id>
+            <url>http://gitblit.github.io/iciql/maven/</url>
+        </repository>
+        <repository>
+        <id>fanciful-mvn-repo</id>
             <url>https://raw.github.com/mkremins/fanciful/mvn-repo/</url>
         </repository>
     </repositories>
@@ -35,6 +39,27 @@
             <version>${spigot.version}</version>
             <type>jar</type>
             <scope>compile</scope>
+        </dependency>
+
+        <!-- iciql -->
+        <dependency>
+            <groupId>com.iciql</groupId>
+            <artifactId>iciql</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+
+        <!-- postgres -->
+        <dependency>
+            <groupId>postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>9.1-901-1.jdbc4</version>
+        </dependency>
+
+        <!-- commons codec -->
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.9</version>
         </dependency>
 
         <!-- fanciful -->
@@ -71,12 +96,32 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
+                            <minimizeJar>true</minimizeJar>
+                            <filters>
+                                <filter>
+                                    <artifact>postgresql:postgresql</artifact>
+                                    <includes>
+                                        <include>**</include>
+                                    </includes>
+                                </filter>
+                            </filters>
                             <artifactSet>
                                 <includes>
+                                    <include>com.iciql</include>
+                                    <include>postgresql:postgresql</include>
+                                    <include>commons-codec:commons-codec</include>
                                     <include>mkremins:fanciful</include>
                                 </includes>
                             </artifactSet>
                             <relocations>
+                                <relocation>
+                                    <pattern>com.iciql</pattern>
+                                    <shadedPattern>me.hqm.plugindev.wget.com.iciql</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.commons.codec</pattern>
+                                    <shadedPattern>me.hqm/plugindev.wget.org.apache.commons.codec</shadedPattern>
+                                </relocation>
                                 <relocation>
                                     <pattern>mkremins</pattern>
                                     <shadedPattern>me.hqm.plugindev.wget.mkremins</shadedPattern>

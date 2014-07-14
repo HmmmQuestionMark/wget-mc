@@ -21,38 +21,29 @@
 
 package me.hqm.plugindev.wget;
 
-import mkremins.fanciful.FancyMessage;
-import net.minecraft.util.org.apache.commons.io.IOUtils;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.ConsoleCommandSender;
+import com.iciql.Db;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.*;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.net.URLConnection;
-import java.nio.file.AccessDeniedException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.sql.Timestamp;
+import java.util.concurrent.TimeUnit;
 
 /**
  * wget for bukkit plugins.
  *
  * @author HmmmQuestionMark
  */
-public class WGET extends JavaPlugin implements CommandExecutor {
-    // -- CONSTANTS -- //
+public class WGET extends JavaPlugin implements Listener {
+    // -- SETTINGS -- //
+    public static Boolean DB_USE;
+    public static String DB_URL;
+    public static Integer DB_SESSION_MINS;
 
-    private static final String PREFIX = ChatColor.YELLOW + "[wget] ";
-    private static final ConcurrentMap<String, URL> CACHE = new ConcurrentHashMap<>();
 
     // -- BUKKIT METHODS -- //
 
@@ -61,253 +52,99 @@ public class WGET extends JavaPlugin implements CommandExecutor {
      */
     @Override
     public void onEnable() {
-        getCommand("wget").setExecutor(this);
-    }
+        DB_USE = getConfig().getBoolean("db.use", true);
+        DB_URL = getConfig().getString("db.url");
+        DB_SESSION_MINS = getConfig().getInt("db.session_mins", 5);
 
-    /**
-     * Standard Bukkit command executor.
-     *
-     * @param sender  The command sender
-     * @param command The command being sent
-     * @param label   The label/alias being used
-     * @param args    The arguments following the command
-     * @return The command ran successfully
-     */
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        // Check for correct arg length
-        if (args.length == 1) {
-            // make a valid url when possible
-            String input = args[0];
-            if (!input.startsWith("http://") && !input.startsWith("https://")) {
-                input = ("http://" + input);
-            }
+        getCommand("wget").setExecutor(new WGCommand(this));
 
-            // Attempt to get a valid url
-            URL url = getUrl(input);
-
-            // Check for a valid url
-            if (url != null) {
-                // If sender is the console, skip verification
-                if (sender instanceof ConsoleCommandSender) {
-                    downloadTask(sender, url);
-                } else {
-                    // Add url to cache before asking for verification
-                    Player player = (Player) sender;
-                    CACHE.putIfAbsent(player.getName(), url);
-
-                    // Send cool click text verification
-                    FancyMessage message = new FancyMessage("Please confirm: ");
-                    message.color(ChatColor.YELLOW).
-                            then("Continue").
-                            style(ChatColor.ITALIC).
-                            command("/wget " + player.getName() + " continue").
-                            tooltip("Download " + fileName(url) + "?").
-                            then(" / ").
-                            color(ChatColor.YELLOW).
-                            then("Cancel").
-                            style(ChatColor.ITALIC).
-                            command("/wget " + sender.getName() + " cancel").
-                            send(player);
-                }
-            }
+        if (DB_USE) {
+            loadSQL();
+            getServer().getPluginManager().registerEvents(this, this);
         }
 
-        // Verification command
-        if (args.length == 2) {
-            String name = args[0];
-            // If verified correctly start the download task
-            if ("continue".equalsIgnoreCase(args[1])) {
-                downloadTask(sender, CACHE.get(name));
-                CACHE.remove(name);
-            } else {
-                // Cancel download and alert the sender.
-                CACHE.remove(name);
-                sender.sendMessage(PREFIX + "Download cancelled.");
-            }
-        }
-        return true;
-    }
-
-    // -- PRIVATE HELPER/UTIL METHODS -- //
-
-    /**
-     * Get a URL from an input string.
-     *
-     * @param input URL String
-     * @return Valid URL
-     */
-    private URL getUrl(String input) {
-        // We only accept jar or zip files
-        if (input.endsWith(".jar") || input.endsWith(".zip")) {
-            // Try to create the object, and test the connection
-            try {
-                URI uri = new URI(input);
-                URL url = uri.toURL();
-                URLConnection conn = url.openConnection();
-                conn.connect();
-                // Return the url
-                return url;
-            } catch (IOException | URISyntaxException ignored) {
-            }
-        }
-        // Failed, return null
-        return null;
+        getConfig().options().copyDefaults(true);
+        saveConfig();
     }
 
     /**
-     * Get the file name from the URL.
-     *
-     * @param url Valid URL
-     * @return Filename
+     * Bukkit logout event listener.
+     * @param event the quit event
      */
-    private String fileName(URL url) {
-        // Split up the url by each '/'
-        String[] fileNameParts = url.toString().split("/");
-        // Return the last section, removing duplicate periods
-        return fileNameParts[fileNameParts.length - 1].replace("..", ".");
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerLogout(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+
+        WGUser alias = new WGUser();
+        Db db = Db.open(DB_URL);
+
+        // Logout the user from the DB when they logout on the server.
+        WGUser user = db.from(alias).where(alias.minecraftId).is(player.getUniqueId().toString()).selectFirst();
+        user.sessionExpires = new Timestamp(System.currentTimeMillis());
+
+        db.update(user);
+        db.close();
     }
 
-    /**
-     * Create and start a download (async) task.
-     *
-     * @param sender The sender who started the task
-     * @param url    Valid URL
-     */
-    private void downloadTask(final CommandSender sender, final URL url) {
-        // Make sure the URL still exists
-        if (url == null) {
-            sender.sendMessage(PREFIX + "Please use /wget <link> to select a download.");
-        } else {
-            // Alert the sender the download has begun
-            sender.sendMessage(PREFIX + "Downloading...");
+    // -- DB UTIL METHODS -- //
 
-            // Create and schedule the new async task
-            Bukkit.getScheduler().scheduleAsyncDelayedTask(this, new Runnable() {
-                @Override
-                public void run() {
-                    // Download the file
-                    if (download(url)) {
-                        // If the sender is the console just let it know the download is complete
-                        if (sender instanceof ConsoleCommandSender) {
-                            sender.sendMessage(PREFIX + "Download complete, reload for update.");
-                        } else {
-                            // Send the player a fancy message allowing them to click to reload
-                            Player player = (Player) sender;
-                            FancyMessage message = new FancyMessage("[wget] Download complete, ");
-                            message.color(ChatColor.YELLOW).
-                                    then("reload for update").
-                                    style(ChatColor.UNDERLINE).
-                                    color(ChatColor.YELLOW).
-                                    command("/reload").
-                                    tooltip("Reload the server?").
-                                    then(".").
-                                    color(ChatColor.YELLOW).
-                                    send(player);
-                        }
-                    } else {
-                        // Oops, something went wrong during download
-                        sender.sendMessage(PREFIX + ChatColor.RED + "ERR: Could not finish downloading.");
-                    }
-                }
-            });
-        }
-    }
-
-    /**
-     * Download a URL (jar or zip) to a file
-     *
-     * @param url Valid URL
-     * @return Success or failure
-     */
-    private boolean download(URL url) {
-        // The plugin folder path
-        String path = getFile().getParentFile().getPath();
-
-        // Wrap everything in a try/catch
+    public void loadSQL() {
         try {
-            // Get the filename from the url
-            String fileName = fileName(url);
-
-            // Create a new input stream and output file
-            InputStream in = url.openStream();
-            File outFile = new File(path + "/" + fileName);
-
-            // If the file already exists, delete it
-            if (outFile.exists()) {
-                outFile.delete();
-            }
-
-            // Create the output stream and download the file
-            FileOutputStream out = new FileOutputStream(outFile);
-            IOUtils.copy(in, out);
-
-            // Close the streams
-            in.close();
-            out.close();
-
-            // If downloaded file is a zip file...
-            if (fileName.endsWith(".zip")) {
-                // Declare a new input stream outside of a try/catch
-                ZipInputStream zis = null;
-                try {
-                    // Define the input stream
-                    zis = new ZipInputStream(new FileInputStream(outFile));
-
-                    // Decalre a zip entry for the while loop
-                    ZipEntry entry;
-                    while ((entry = zis.getNextEntry()) != null) {
-                        // Make a new file object for the entiry
-                        File entryFile = new File(path, entry.getName());
-
-                        // If it is a directory and doesn't already exist, create the new directory
-                        if (entry.isDirectory()) {
-                            if (!entryFile.exists()) {
-                                entryFile.mkdirs();
-                            }
-                        } else {
-                            // Make sure all folders exist
-                            if (entryFile.getParentFile() != null && !entryFile.getParentFile().exists()) {
-                                entryFile.getParentFile().mkdirs();
-                            }
-
-                            // Create file on disk
-                            if (!entryFile.exists() && !entryFile.createNewFile()) {
-                                // Access denied, let the console know
-                                throw new AccessDeniedException(entryFile.getPath());
-                            }
-
-                            // Write data to file from zip.
-                            OutputStream os = null;
-                            try {
-                                os = new FileOutputStream(entryFile);
-                                IOUtils.copy(zis, os);
-                            } finally {
-                                // Silently close the output stream
-                                IOUtils.closeQuietly(os);
-                            }
-                        }
-                    }
-                } finally {
-                    // Always close streams
-                    IOUtils.closeQuietly(zis);
-                }
-
-                // Delete the zip file
-                outFile.delete();
-            }
-
-            // Return success
-            return true;
-        } catch (NullPointerException | IOException oops) {
-            getLogger().severe("---------- WGET BEGIN -----------");
-            getLogger().severe("An error occurred during a file download/extraction:");
-            oops.printStackTrace();
-            getLogger().severe("----------- WGET END ------------");
+            Class.forName("org.postgresql.Driver");
+        } catch (Exception ignored) {
         }
+    }
 
-        // The download failed, report failure
-        return false;
+    public static WGUser getUser(Player player) {
+        WGUser alias = new WGUser();
+        Db db = Db.open(DB_URL);
+        try {
+            return db.from(alias).where(alias.minecraftId).is(player.getUniqueId().toString()).selectFirst();
+        } finally {
+            db.close();
+        }
+    }
+
+    public static boolean isRegistered(Player player) {
+        WGUser alias = new WGUser();
+        Db db = Db.open(DB_URL);
+        try {
+            return db.from(alias).where(alias.minecraftId).is(player.getUniqueId().toString()).select().size() > 0;
+        } finally {
+            db.close();
+        }
+    }
+
+    public static boolean isLoggedIn(Player player) {
+        return getUser(player).sessionExpires.getTime() > System.currentTimeMillis();
+    }
+
+    public static void register(Player player, String password) {
+        String passwordHash = DigestUtils.sha512Hex(password);
+
+        WGUser user = new WGUser();
+        user.minecraftId = player.getUniqueId().toString();
+        user.passwordHash = passwordHash;
+
+        Db db = Db.open(DB_URL);
+        db.insert(user);
+        db.close();
+
+        login(player);
+    }
+
+    public static void login(Player player) {
+        WGUser alias = new WGUser();
+        Db db = Db.open(DB_URL);
+
+        WGUser user = db.from(alias).where(alias.minecraftId).is(player.getUniqueId().toString()).selectFirst();
+        user.sessionExpires = new Timestamp(System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(DB_SESSION_MINS));
+        user.lastKnownName = player.getName();
+
+        db.update(user);
+        db.close();
+
+        player.performCommand("wget " + WGCommand.CACHE.get(player.getName()).toString());
     }
 }
 

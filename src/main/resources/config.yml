@@ -1,0 +1,4 @@
+db:
+  use: true
+  url: 'jdbc:postgresql://localhost/wget?user=wget&password=wget'
+  session_mins: 5
