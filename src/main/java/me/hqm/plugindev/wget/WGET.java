@@ -69,6 +69,7 @@ public class WGET extends JavaPlugin implements Listener {
 
     /**
      * Bukkit logout event listener.
+     *
      * @param event the quit event
      */
     @EventHandler(priority = EventPriority.MONITOR)
@@ -90,7 +91,7 @@ public class WGET extends JavaPlugin implements Listener {
 
     public void loadSQL() {
         try {
-            Class.forName("org.postgresql.Driver");
+            Class.forName("com.mysql.jdbc.Driver");
         } catch (Exception ignored) {
         }
     }
